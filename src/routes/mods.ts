@@ -7,7 +7,7 @@ const router = Router();
 // Get all mods
 router.get('/', async (req, res, next) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = parseInt(req.query.limit as string) || 1000;
     const offset = parseInt(req.query.offset as string) || 0;
     
     const mods = await modService.getAllMods(limit, offset);

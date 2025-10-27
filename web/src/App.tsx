@@ -104,8 +104,8 @@ function App() {
     setLoading(true);
     try {
       const url = search 
-        ? `/api/mods/search?q=${encodeURIComponent(search)}`
-        : '/api/mods';
+        ? `/api/mods/search?q=${encodeURIComponent(search)}&limit=1000`
+        : '/api/mods?limit=1000';
       
       const response = await fetch(url);
       const data = await response.json();
