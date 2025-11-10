@@ -3,7 +3,7 @@
  * Defines the contract between main and renderer processes
  */
 
-import { ModInfo, TranslationRequest, TranslationResponse } from './index';
+import type { ModInfo, TranslationRequest, TranslationResponse } from './index';
 
 /**
  * Mod-related operation results

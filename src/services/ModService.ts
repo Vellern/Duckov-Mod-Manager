@@ -387,7 +387,7 @@ export class ModService {
           reject(err);
         });
 
-        output.on('error', (err) => {
+        output.on('error', (err: Error) => {
           logger.error('Output stream error:', err);
           reject(err);
         });

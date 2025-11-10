@@ -1,6 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+/**
+ * Vite Configuration for Electron App
+ *
+ * Changes for Electron IPC migration:
+ * - Removed proxy configuration (no backend server needed)
+ * - React app communicates directly with Electron main process via IPC
+ * - Vite dev server only serves the React frontend
+ */
 export default defineConfig({
   plugins: [react()],
   root: './web',
@@ -10,11 +18,7 @@ export default defineConfig({
   },
   server: {
     port: 3001,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-    },
+    // Proxy removed - all API calls now use Electron IPC instead of HTTP
+    // The React frontend communicates with the main process via window.electronAPI
   },
 })

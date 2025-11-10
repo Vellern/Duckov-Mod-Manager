@@ -219,24 +219,13 @@ export class Database {
     return rows.map(row => this.mapRowToMod(row));
   }
 
-  async saveTranslation(translation: CachedTranslation): Promise<void> {
-    const query = `
-      INSERT OR REPLACE INTO translations (
-        original_text, translated_text, source_lang, target_lang, expires_at
-      ) VALUES (?, ?, ?, ?, ?)
-    `;
-
-    const params = [
-      translation.originalText,
-      translation.translatedText,
-      translation.sourceLang,
-      translation.targetLang,
-      translation.expiresAt.toISOString()
-    ];
-
-    await this.runQuery(query, params);
-  }
-
+  /**
+   * Gets a cached translation from the database
+   * @param originalText - Original text
+   * @param sourceLang - Source language code
+   * @param targetLang - Target language code
+   * @returns Cached translation or null if not found/expired
+   */
   async getTranslation(originalText: string, sourceLang: string, targetLang: string): Promise<CachedTranslation | null> {
     const query = `
       SELECT * FROM translations
@@ -259,8 +248,6 @@ export class Database {
 
   /**
    * Saves a translation to the database cache
-   * Simpler interface for OfflineTranslationService
-   *
    * @param text - Original text
    * @param translation - Translated text
    * @param sourceLang - Source language code

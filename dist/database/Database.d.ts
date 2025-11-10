@@ -22,7 +22,22 @@ export declare class Database {
     getMod(id: string): Promise<ModInfo | null>;
     getAllMods(limit?: number, offset?: number): Promise<ModInfo[]>;
     searchMods(searchTerm: string, limit?: number): Promise<ModInfo[]>;
+    /**
+     * Gets a cached translation from the database
+     * @param originalText - Original text
+     * @param sourceLang - Source language code
+     * @param targetLang - Target language code
+     * @returns Cached translation or null if not found/expired
+     */
     getTranslation(originalText: string, sourceLang: string, targetLang: string): Promise<CachedTranslation | null>;
+    /**
+     * Saves a translation to the database cache
+     * @param text - Original text
+     * @param translation - Translated text
+     * @param sourceLang - Source language code
+     * @param targetLang - Target language code
+     */
+    saveTranslation(text: string, translation: string, sourceLang: string, targetLang: string): Promise<void>;
     /**
      * Gets the total count of cached translations
      * Useful for statistics and monitoring

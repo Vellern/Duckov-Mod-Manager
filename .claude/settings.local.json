@@ -6,7 +6,9 @@
       "Bash(node scripts/verify-setup.js:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(npm run build:electron:*)"
+      "Bash(npm run build:electron:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run web:build:*)"
     ],
     "deny": [],
     "ask": []

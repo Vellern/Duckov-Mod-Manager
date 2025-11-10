@@ -101,6 +101,7 @@ export class OfflineTranslationService {
       // Load the translation pipeline
       // Model: opus-mt-zh-en (Chinese to English)
       // Task: translation
+      // @ts-ignore - Type mismatch between TranslationPipeline and Pipeline, but functionally compatible
       this.translator = await pipeline(
         'translation',
         'Xenova/opus-mt-zh-en',

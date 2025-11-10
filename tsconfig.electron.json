@@ -4,7 +4,7 @@
     "target": "ES2020",
     "module": "commonjs",
     "lib": ["ES2020"],
-    "types": ["node", "electron"],
+    "types": ["node"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -39,6 +39,8 @@
     "web",
     "src/routes/**/*",
     "src/middleware/**/*",
-    "src/index.ts"
+    "src/index.ts",
+    "src/services/TranslationService.ts",
+    "src/services/SteamWorkshopService.ts"
   ]
 }

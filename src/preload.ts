@@ -11,12 +11,14 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import {
-  ElectronAPI,
   IpcChannels,
+} from './types/electron';
+import type {
+  ElectronAPI,
   OpenDialogOptions,
   SaveDialogOptions,
-  TranslationRequest,
 } from './types/electron';
+import type { TranslationRequest } from './types';
 
 /**
  * Validate IPC channel to prevent arbitrary channel access

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import ModList from './components/ModList'
 import SearchBar from './components/SearchBar'
 import Statistics from './components/Statistics'
+import { modsAPI } from './services/api'
 import './App.css'
 
 interface ModInfo {
@@ -106,18 +107,18 @@ function App() {
   const fetchMods = async (search?: string) => {
     setLoading(true);
     try {
-      const url = search 
-        ? `/api/mods/search?q=${encodeURIComponent(search)}&limit=1000`
-        : '/api/mods?limit=1000';
-      
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      if (data.success) {
-        setMods(data.data);
+      // Use IPC API instead of HTTP fetch
+      let modsData;
+      if (search) {
+        modsData = await modsAPI.searchMods(search, 1000);
+      } else {
+        modsData = await modsAPI.getAllMods(1000, 0);
       }
+
+      setMods(modsData);
     } catch (error) {
       console.error('Failed to fetch mods:', error);
+      alert(`Failed to fetch mods: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -125,14 +126,12 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/mods/stats/overview');
-      const data = await response.json();
-      
-      if (data.success) {
-        setStats(data.data);
-      }
+      // Use IPC API instead of HTTP fetch
+      const statsData = await modsAPI.getStatistics();
+      setStats(statsData);
     } catch (error) {
       console.error('Failed to fetch stats:', error);
+      // Non-critical error, don't show alert
     }
   };
 
@@ -185,24 +184,15 @@ function App() {
   const syncMods = async (fileIds: string[]) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/mods/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fileIds }),
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        await fetchMods();
-        await fetchStats();
-        alert(`Successfully synced ${data.synced} mods`);
-      }
+      // Use IPC API instead of HTTP fetch
+      const result = await modsAPI.syncMods(fileIds);
+
+      await fetchMods();
+      await fetchStats();
+      alert(`Successfully synced ${result.synced} mods`);
     } catch (error) {
       console.error('Failed to sync mods:', error);
-      alert('Failed to sync mods');
+      alert(`Failed to sync mods: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -211,25 +201,21 @@ function App() {
   const scanWorkshopFolder = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/mods/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        await fetchMods();
-        await fetchStats();
-        alert(`Scan complete: ${data.data.scanned} mods found, ${data.data.synced} synced successfully`);
+      // Use IPC API instead of HTTP fetch
+      const result = await modsAPI.scanWorkshopFolder();
+
+      await fetchMods();
+      await fetchStats();
+
+      const message = `Scan complete: ${result.scanned} mods found, ${result.synced} synced successfully`;
+      if (result.errors > 0) {
+        alert(`${message}\n\nWarning: ${result.errors} errors occurred during scan.`);
       } else {
-        alert('Failed to scan workshop folder');
+        alert(message);
       }
     } catch (error) {
       console.error('Failed to scan workshop folder:', error);
-      alert('Failed to scan workshop folder. Check console for details.');
+      alert(`Failed to scan workshop folder: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -259,34 +245,29 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/mods/export', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ modIds: selectedMods }),
-      });
+      // Use IPC API instead of HTTP fetch
+      // The API will handle showing the save dialog and creating the zip
+      const result = await modsAPI.exportMods(selectedMods);
 
-      if (!response.ok) {
-        throw new Error('Export failed');
+      if (result.success) {
+        let message = `Successfully exported ${result.exportedCount} mod${result.exportedCount > 1 ? 's' : ''} to:\n${result.filePath}`;
+
+        if (result.missingMods.length > 0) {
+          message += `\n\nWarning: ${result.missingMods.length} mod${result.missingMods.length > 1 ? 's' : ''} could not be found locally:\n${result.missingMods.join(', ')}`;
+        }
+
+        alert(message);
+        clearSelection();
       }
-
-      // Create a blob from the response and download it
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `duckov-mods-export-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      alert(`Successfully exported ${selectedMods.length} mods`);
-      clearSelection();
     } catch (error) {
       console.error('Failed to export mods:', error);
-      alert('Failed to export mods. Check console for details.');
+
+      // Check if user canceled the export
+      if (error instanceof Error && error.message.includes('canceled')) {
+        console.log('Export canceled by user');
+      } else {
+        alert(`Failed to export mods: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -300,32 +281,14 @@ function App() {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/mods/export/collection', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ collectionUrl }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Export failed');
-      }
-
-      // Create a blob from the response and download it
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `duckov-collection-export-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      alert('Successfully exported collection mods');
-      setCollectionUrl('');
+      // NOTE: Collection export requires Steam Workshop API access
+      // This is not available in the offline Electron version
+      // Keeping the UI for potential future implementation
+      alert(
+        'Collection export is not available in offline mode.\n\n' +
+        'This feature requires Steam Workshop API access.\n' +
+        'Please use "Export Selected" to export mods that are already downloaded.'
+      );
       setShowExportDialog(false);
     } catch (error) {
       console.error('Failed to export collection:', error);
