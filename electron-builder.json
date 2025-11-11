@@ -1,7 +1,8 @@
 {
   "appId": "com.dmck96.duckov-mod-manager",
   "productName": "Duckov Mod Manager",
-  "copyright": "Copyright © 2024 DMCK96",
+  "copyright": "Copyright © 2024-2025 DMCK96",
+  "description": "Desktop application for managing and translating Escape from Duckov Steam Workshop mods with offline capabilities",
   "directories": {
     "output": "release",
     "buildResources": "build"
@@ -66,21 +67,32 @@
   "nsis": {
     "oneClick": false,
     "perMachine": false,
+    "allowElevation": true,
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false,
-    "createDesktopShortcut": true,
+    "createDesktopShortcut": "always",
     "createStartMenuShortcut": true,
     "shortcutName": "Duckov Mod Manager",
     "include": "build/installer.nsh",
     "installerIcon": "build/icon.ico",
     "uninstallerIcon": "build/icon.ico",
     "installerHeader": "build/installerHeader.bmp",
+    "installerHeaderHeight": 57,
     "installerSidebar": "build/installerSidebar.bmp",
     "uninstallerSidebar": "build/installerSidebar.bmp",
     "license": "LICENSE",
     "warningsAsErrors": false,
     "runAfterFinish": true,
-    "menuCategory": true
+    "menuCategory": true,
+    "displayLanguageSelector": false,
+    "installerLanguages": ["en_US"],
+    "language": "1033",
+    "multiLanguageInstaller": false,
+    "packElevateHelper": true,
+    "removeDefaultUninstallWelcomePage": false,
+    "guid": "4c9c02c8-3e7b-4f2a-9d8a-1a5b6c7d8e9f",
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+    "uninstallDisplayName": "${productName}"
   },
   "portable": {
     "artifactName": "${productName}-${version}-portable.exe"
