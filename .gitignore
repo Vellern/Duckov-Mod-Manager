@@ -102,9 +102,33 @@ typings/
 release/
 dist/
 out/
+build/Release
 
 # Electron builder files
 dist-electron/
 .electron-builder/
+
+# Build artifacts
+*.exe
+*.dmg
+*.app
+*.deb
+*.rpm
+*.AppImage
+*.snap
+*.tar.gz
+*.zip
+*.msi
+
+# Build reports
+build-report.json
+verification-report.json
+benchmark-results.json
+
+# Vite build output
+web/dist/
+
+# TypeScript build info
+*.tsbuildinfo
 
 package-lock.json

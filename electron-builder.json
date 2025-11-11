@@ -9,7 +9,34 @@
   "files": [
     "dist/**/*",
     "web/dist/**/*",
-    "package.json"
+    "package.json",
+    "!dist/**/*.ts",
+    "!dist/**/*.map",
+    "!dist/**/*.d.ts",
+    "!web/dist/**/*.map",
+    "!**/__tests__/**",
+    "!**/__mocks__/**",
+    "!**/test/**",
+    "!**/tests/**",
+    "!**/*.spec.js",
+    "!**/*.test.js",
+    "!**/*.spec.ts",
+    "!**/*.test.ts",
+    "!**/docs/**",
+    "!**/coverage/**",
+    "!**/.vscode/**",
+    "!**/.idea/**",
+    "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+    "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+    "!**/node_modules/*.d.ts",
+    "!**/node_modules/.bin",
+    "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+    "!.editorconfig",
+    "!**/._*",
+    "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+    "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+    "!**/{appveyor.yml,.travis.yml,circle.yml}",
+    "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
   ],
   "extraMetadata": {
     "main": "dist/main.js"
@@ -32,7 +59,9 @@
     ],
     "icon": "build/icon.ico",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
-    "publisherName": "DMCK96"
+    "publisherName": "DMCK96",
+    "verifyUpdateCodeSignature": false,
+    "rfc3161TimeStampServer": "http://timestamp.digicert.com"
   },
   "nsis": {
     "oneClick": false,
@@ -42,7 +71,16 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "Duckov Mod Manager",
-    "include": "build/installer.nsh"
+    "include": "build/installer.nsh",
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "installerHeader": "build/installerHeader.bmp",
+    "installerSidebar": "build/installerSidebar.bmp",
+    "uninstallerSidebar": "build/installerSidebar.bmp",
+    "license": "LICENSE",
+    "warningsAsErrors": false,
+    "runAfterFinish": true,
+    "menuCategory": true
   },
   "portable": {
     "artifactName": "${productName}-${version}-portable.exe"
@@ -57,7 +95,9 @@
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
     "entitlements": "build/entitlements.mac.plist",
-    "entitlementsInherit": "build/entitlements.mac.plist"
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "type": "distribution",
+    "minimumSystemVersion": "10.15.0"
   },
   "dmg": {
     "contents": [
@@ -75,7 +115,10 @@
     "window": {
       "width": 540,
       "height": 380
-    }
+    },
+    "title": "${productName} ${version}",
+    "background": "build/background.tiff",
+    "icon": "build/icon.icns"
   },
   "linux": {
     "target": [
@@ -85,22 +128,58 @@
     ],
     "icon": "build/icons",
     "category": "Utility",
-    "synopsis": "Mod manager for Escape from Duckov with Steam Workshop integration"
+    "synopsis": "Mod manager for Escape from Duckov with Steam Workshop integration",
+    "desktop": {
+      "Name": "Duckov Mod Manager",
+      "Comment": "Manage mods for Escape from Duckov",
+      "Categories": "Game;Utility;",
+      "StartupWMClass": "duckov-mod-manager"
+    },
+    "maintainer": "DMCK96",
+    "vendor": "DMCK96"
+  },
+  "deb": {
+    "depends": [
+      "gconf2",
+      "gconf-service",
+      "libnotify4",
+      "libappindicator1",
+      "libxtst6",
+      "libnss3"
+    ],
+    "priority": "optional"
+  },
+  "rpm": {
+    "depends": [
+      "libXScrnSaver"
+    ]
   },
   "afterSign": "build/notarize.js",
   "publish": null,
-  "compression": "normal",
+  "compression": "maximum",
   "asar": true,
   "asarUnpack": [
     "**\\*.{node,dll}",
-    "**/node_modules/sqlite3/**/*"
+    "**/node_modules/sqlite3/**/*",
+    "**/node_modules/@xenova/transformers/**/*"
   ],
   "fileAssociations": [
     {
       "ext": "duckmod",
       "name": "Duckov Mod File",
       "description": "Duckov Mod Manager Mod File",
-      "role": "Editor"
+      "role": "Editor",
+      "icon": "build/file-icon.ico",
+      "mimeType": "application/x-duckmod"
+    }
+  ],
+  "protocols": [
+    {
+      "name": "duckov-mod-manager",
+      "schemes": [
+        "duckovmm"
+      ],
+      "role": "Viewer"
     }
   ]
 }
