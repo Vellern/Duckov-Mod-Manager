@@ -33,7 +33,8 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "preserveConstEnums": false,
-    "stripInternal": true
+    "stripInternal": true,
+    "verbatimModuleSyntax": false
   },
   "include": [
     "src/main.ts",

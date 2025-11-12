@@ -12,10 +12,37 @@ import { Database } from './database/Database';
 import { ModService } from './services/ModService';
 import { OfflineTranslationService } from './services/OfflineTranslationService';
 import { LocalModService } from './services/LocalModService';
+import { SteamWorkshopService } from './services/SteamWorkshopService';
+
+// Dynamic import for electron-store (ES Module)
+// Using eval to prevent TypeScript from converting to require()
+let Store: any;
+async function getStore() {
+  if (!Store) {
+    // Use eval to ensure dynamic import stays as import() in compiled code
+    const module = await eval('import("electron-store")');
+    Store = module.default;
+  }
+  return Store;
+}
+
+// Debug: Check squirrel startup value  
+console.log('[INIT] squirrelStartup module value:', squirrelStartup);
+console.log('[INIT] typeof squirrelStartup:', typeof squirrelStartup);
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
-if (squirrelStartup) {
-  app.quit();
+// Only check for squirrel events in packaged apps (not during development)
+try {
+  const isPackaged = app?.isPackaged ?? false;
+  console.log('[INIT] app.isPackaged:', isPackaged);
+  console.log('[INIT] Will quit?', isPackaged && squirrelStartup);
+  
+  if (isPackaged && squirrelStartup) {
+    console.log('[INIT] Quitting due to Squirrel event');
+    app.quit();
+  }
+} catch (error) {
+  console.error('[INIT] Error during squirrel check:', error);
 }
 
 /**
@@ -25,6 +52,7 @@ let database: Database;
 let modService: ModService;
 let translationService: OfflineTranslationService;
 let localModService: LocalModService;
+let steamWorkshopService: SteamWorkshopService;
 
 /**
  * Main application window
@@ -32,9 +60,18 @@ let localModService: LocalModService;
 let mainWindow: BrowserWindow | null = null;
 
 /**
- * Determine if running in development mode
+ * Determine if running in development mode with dev server
+ * Use a function to avoid accessing app.isPackaged at module load time
+ * Only use dev server if ELECTRON_DEV_SERVER is explicitly set
  */
-const isDevelopment = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const isDevelopment = () => {
+  // Only use dev server if explicitly enabled via environment variable
+  const useDevServer = process.env.ELECTRON_DEV_SERVER === 'true';
+  const isPackaged = app.isPackaged;
+  const result = useDevServer && !isPackaged;
+  logger.info(`isDevelopment: ELECTRON_DEV_SERVER=${useDevServer}, isPackaged=${isPackaged}, result=${result}`);
+  return result;
+};
 
 /**
  * Create the main browser window
@@ -64,7 +101,7 @@ function createMainWindow(): BrowserWindow {
   });
 
   // Load the app
-  if (isDevelopment) {
+  if (isDevelopment()) {
     // Development: Load from Vite dev server
     const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3001';
     win.loadURL(devServerUrl).catch((err) => {
@@ -77,7 +114,11 @@ function createMainWindow(): BrowserWindow {
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
     // Production: Load from built files
-    const indexPath = path.join(__dirname, '../web/dist/index.html');
+    // Web files are unpacked from asar to app.asar.unpacked
+    const indexPath = path.join(__dirname, '../web/dist/index.html').replace('app.asar', 'app.asar.unpacked');
+    
+    logger.info(`Loading index.html from: ${indexPath}`);
+    
     win.loadFile(indexPath).catch((err) => {
       logger.error('Failed to load production index.html:', err);
       logger.error('Make sure to build the web app first: npm run web:build');
@@ -89,11 +130,11 @@ function createMainWindow(): BrowserWindow {
     mainWindow = null;
   });
 
-  win.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
     logger.error(`Failed to load: ${errorCode} - ${errorDescription}`);
   });
 
-  win.webContents.on('crashed', (event, killed) => {
+  win.webContents.on('crashed', (_event, killed) => {
     logger.error('Renderer process crashed:', { killed });
     // Optionally reload or show error dialog
   });
@@ -113,32 +154,46 @@ async function initializeServices(): Promise<void> {
     await database.initialize();
     logger.info('Database initialized successfully');
 
+    // Load workshop path from stored settings
+    const StoreClass = await getStore();
+    const store = new StoreClass();
+    const storedWorkshopPath = store.get('workshopPath', '');
+    
+    logger.info(`Stored workshop path: ${storedWorkshopPath || '(not set)'}`);
+
     // Initialize services
     translationService = new OfflineTranslationService(database);
-    localModService = new LocalModService();
+    localModService = new LocalModService(storedWorkshopPath as string);
+    steamWorkshopService = new SteamWorkshopService();
     modService = new ModService(
       database,
       translationService,
-      localModService
+      localModService,
+      steamWorkshopService
     );
 
     logger.info('Services initialized successfully');
 
-    // Perform initial scan of local workshop folder
-    try {
-      logger.info('Performing initial scan of workshop folder...');
-      const result = await modService.scanAndSyncLocalMods();
-      logger.info(
-        `Initial scan complete: ${result.scanned} mods scanned, ${result.synced.length} synced`
-      );
-      if (result.errors.length > 0) {
-        logger.warn(`Initial scan had ${result.errors.length} errors`);
+    // Only perform initial scan if workshop path is configured
+    const workshopPath = (localModService as any).workshopPath;
+    if (workshopPath && workshopPath.trim()) {
+      try {
+        logger.info('Performing initial scan of workshop folder...');
+        const result = await modService.scanAndSyncLocalMods();
+        logger.info(
+          `Initial scan complete: ${result.scanned} mods scanned, ${result.synced.length} synced`
+        );
+        if (result.errors.length > 0) {
+          logger.warn(`Initial scan had ${result.errors.length} errors`);
+        }
+      } catch (scanError) {
+        logger.error('Failed to perform initial workshop scan:', scanError);
+        logger.warn(
+          'App will continue without initial scan. You can manually trigger a scan via the UI.'
+        );
       }
-    } catch (scanError) {
-      logger.error('Failed to perform initial workshop scan:', scanError);
-      logger.warn(
-        'App will continue without initial scan. You can manually trigger a scan via the UI.'
-      );
+    } else {
+      logger.warn('Workshop path not configured. Skipping initial scan. Please configure workshop path in settings.');
     }
   } catch (error) {
     logger.error('Failed to initialize services:', error);
@@ -187,7 +242,7 @@ function registerIpcHandlers(): void {
   /**
    * Get all mods with optional pagination
    */
-  ipcMain.handle('mods:getAll', async (_, args: { limit?: number; offset?: number }) => {
+  ipcMain.handle('mods:get-all', async (_, args: { limit?: number; offset?: number }) => {
     try {
       const { limit = 1000, offset = 0 } = args || {};
       logger.debug(`[IPC] mods:getAll - Fetching mods (limit: ${limit}, offset: ${offset})`);
@@ -212,7 +267,10 @@ function registerIpcHandlers(): void {
   /**
    * Get specific mod by ID
    */
-  ipcMain.handle('mods:getById', async (_, args: { id: string }) => {
+  /**
+   * Get mod by ID
+   */
+  ipcMain.handle('mods:get-by-id', async (_, args: { id: string }) => {
     try {
       const { id } = args;
       logger.debug(`[IPC] mods:getById - Fetching mod ${id}`);
@@ -269,7 +327,7 @@ function registerIpcHandlers(): void {
    * Sync specific mods from workshop (not used in current offline implementation)
    * Kept for potential future use
    */
-  ipcMain.handle('mods:sync', async (_, args: { fileIds?: string[] }) => {
+  ipcMain.handle('mods:sync', async (_) => {
     try {
       logger.info('[IPC] mods:sync - Manual sync requested (using scanAndSyncLocalMods)');
 
@@ -399,7 +457,7 @@ function registerIpcHandlers(): void {
   /**
    * Clear translation cache
    */
-  ipcMain.handle('translation:clearCache', async () => {
+  ipcMain.handle('translation:clear-cache', async () => {
     try {
       logger.info('[IPC] translation:clearCache - Clearing translation cache');
 
@@ -456,13 +514,86 @@ function registerIpcHandlers(): void {
   });
 
   // ==========================================
+  // Settings Operations
+  // ==========================================
+
+  /**
+   * Get workshop path setting
+   */
+  ipcMain.handle('settings:get-workshop-path', async () => {
+    try {
+      logger.debug('[IPC] settings:getWorkshopPath - Fetching workshop path');
+      
+      const workshopPath = localModService ? (localModService as any).workshopPath : '';
+      
+      return {
+        success: true,
+        data: workshopPath || ''
+      };
+    } catch (error) {
+      logger.error('[IPC] settings:getWorkshopPath - Error:', error);
+      throw error;
+    }
+  });
+
+  /**
+   * Set workshop path setting
+   */
+  ipcMain.handle('settings:set-workshop-path', async (_, args: { path: string }) => {
+    try {
+      const { path: workshopPath } = args;
+      logger.info(`[IPC] settings:setWorkshopPath - Setting workshop path to: ${workshopPath}`);
+      
+      if (!localModService) {
+        throw new Error('Local mod service not initialized');
+      }
+      
+      // Update the workshop path
+      localModService.setWorkshopPath(workshopPath);
+      
+      // Store in user preferences for persistence
+      const StoreClass = await getStore();
+      const store = new StoreClass();
+      store.set('workshopPath', workshopPath);
+      
+      return {
+        success: true,
+        message: 'Workshop path updated successfully'
+      };
+    } catch (error) {
+      logger.error('[IPC] settings:setWorkshopPath - Error:', error);
+      throw error;
+    }
+  });
+
+  /**
+   * Check if workshop path is configured
+   */
+  ipcMain.handle('settings:is-workshop-configured', async () => {
+    try {
+      const workshopPath = localModService ? (localModService as any).workshopPath : '';
+      const isConfigured = Boolean(workshopPath && workshopPath.trim());
+      
+      logger.debug(`[IPC] settings:isWorkshopConfigured - ${isConfigured}`);
+      
+      return {
+        success: true,
+        data: isConfigured
+      };
+    } catch (error) {
+      logger.error('[IPC] settings:isWorkshopConfigured - Error:', error);
+      throw error;
+    }
+  });
+
+  // ==========================================
   // App Operations
   // ==========================================
 
   /**
    * Get app information
    */
-  ipcMain.handle('app:getInfo', async () => {
+  ipcMain.handle('app:get-info', async () => {
     try {
       return {
         success: true,
@@ -482,7 +613,7 @@ function registerIpcHandlers(): void {
   /**
    * Get system path
    */
-  ipcMain.handle('app:getPath', async (_, args: { name: string }) => {
+  ipcMain.handle('app:get-path', async (_, args: { name: string }) => {
     try {
       const { name } = args;
       const validNames = ['home', 'appData', 'userData', 'temp', 'downloads', 'documents'];
@@ -537,24 +668,33 @@ function registerIpcHandlers(): void {
  */
 app.whenReady().then(async () => {
   try {
+    console.log('[STARTUP] App ready event fired');
     logger.info('App ready, initializing...');
-    logger.info(`Running in ${isDevelopment ? 'development' : 'production'} mode`);
+    logger.info(`Running in ${isDevelopment() ? 'development' : 'production'} mode`);
     logger.info(`Platform: ${process.platform}, Architecture: ${process.arch}`);
 
+    console.log('[STARTUP] About to initialize services');
     // Initialize services
     await initializeServices();
 
+    console.log('[STARTUP] Services initialized, registering IPC handlers');
     // Register IPC handlers
     registerIpcHandlers();
 
+    console.log('[STARTUP] Creating main window');
     // Create main window
     mainWindow = createMainWindow();
 
+    console.log('[STARTUP] Application started successfully');
     logger.info('Application started successfully');
   } catch (error) {
+    console.error('[STARTUP ERROR]', error);
     logger.error('Failed to start application:', error);
     app.quit();
   }
+}).catch(error => {
+  console.error('[STARTUP PROMISE REJECTED]', error);
+  app.quit();
 });
 
 /**

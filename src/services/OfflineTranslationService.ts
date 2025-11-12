@@ -1,9 +1,18 @@
-import { pipeline, Pipeline, env } from '@xenova/transformers';
 import { Database } from '../database/Database';
 import { logger } from '../utils/logger';
-import { TranslationResponse, CachedTranslation } from '../types';
 import { app } from 'electron';
 import path from 'path';
+
+// Dynamic import types for @xenova/transformers (ES module)
+type Pipeline = any;
+type TransformersModule = {
+  pipeline: (task: string, model: string, options?: any) => Promise<Pipeline>;
+  env: {
+    cacheDir: string;
+    allowRemoteModels: boolean;
+    allowLocalModels: boolean;
+  };
+};
 
 /**
  * OfflineTranslationService - Provides offline translation using Transformers.js
@@ -29,6 +38,7 @@ import path from 'path';
  */
 export class OfflineTranslationService {
   private translator: Pipeline | null = null;
+  private transformersModule: TransformersModule | null = null;
   private isInitializing: boolean = false;
   private initializationPromise: Promise<void> | null = null;
   private database: Database;
@@ -43,17 +53,43 @@ export class OfflineTranslationService {
 
   constructor(database: Database) {
     this.database = database;
+    logger.info('OfflineTranslationService created (models will be loaded on first use)');
+  }
 
-    // Configure Transformers.js for Electron environment
-    // Models will be cached in userData directory for offline use
-    const modelsPath = path.join(app.getPath('userData'), 'models');
-    env.cacheDir = modelsPath;
+  /**
+   * Dynamically imports the transformers module
+   * This is required because @xenova/transformers is an ES module
+   * @private
+   */
+  private async loadTransformersModule(): Promise<TransformersModule> {
+    if (this.transformersModule) {
+      return this.transformersModule;
+    }
 
-    // Disable remote model loading after first download
-    env.allowRemoteModels = true; // Set to false after initial download
-    env.allowLocalModels = true;
+    try {
+      // Dynamic import of ES module
+      // Using Function constructor to prevent TypeScript from converting to require()
+      // This is necessary because @xenova/transformers is a pure ES module
+      const importModule = new Function('specifier', 'return import(specifier)');
+      const module = await importModule('@xenova/transformers') as any;
+      this.transformersModule = module;
+      
+      // Configure Transformers.js for Electron environment
+      // Models will be cached in userData directory for offline use
+      const modelsPath = path.join(app.getPath('userData'), 'models');
+      module.env.cacheDir = modelsPath;
 
-    logger.info(`Translation models will be cached at: ${modelsPath}`);
+      // Disable remote model loading after first download
+      module.env.allowRemoteModels = true; // Set to false after initial download
+      module.env.allowLocalModels = true;
+
+      logger.info(`Translation models will be cached at: ${modelsPath}`);
+      
+      return module;
+    } catch (error) {
+      logger.error('Failed to load transformers module:', error);
+      throw new Error(`Failed to load transformers module: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
@@ -98,11 +134,13 @@ export class OfflineTranslationService {
       logger.info('Loading offline translation model (Xenova/opus-mt-zh-en)...');
       logger.info('Note: First load will download ~300-500MB. Please be patient...');
 
+      // Load the transformers module first (dynamic import)
+      const transformers = await this.loadTransformersModule();
+
       // Load the translation pipeline
       // Model: opus-mt-zh-en (Chinese to English)
       // Task: translation
-      // @ts-ignore - Type mismatch between TranslationPipeline and Pipeline, but functionally compatible
-      this.translator = await pipeline(
+      this.translator = await transformers.pipeline(
         'translation',
         'Xenova/opus-mt-zh-en',
         {
@@ -231,7 +269,7 @@ export class OfflineTranslationService {
   async translateModContent(
     title: string,
     description: string,
-    targetLang: string = 'en'
+    _targetLang: string = 'en'
   ): Promise<{
     translatedTitle: string;
     translatedDescription: string;
@@ -351,9 +389,10 @@ export class OfflineTranslationService {
 
       logger.info(`Translation model validated. Test: "你好" -> "${testTranslation}"`);
 
+      const cacheDir = this.transformersModule?.env.cacheDir || path.join(app.getPath('userData'), 'models');
       return {
         valid: true,
-        message: `Offline translation is ready. Model cached at: ${env.cacheDir}`
+        message: `Offline translation is ready. Model cached at: ${cacheDir}`
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

@@ -2,7 +2,6 @@
   "appId": "com.dmck96.duckov-mod-manager",
   "productName": "Duckov Mod Manager",
   "copyright": "Copyright © 2024-2025 DMCK96",
-  "description": "Desktop application for managing and translating Escape from Duckov Steam Workshop mods with offline capabilities",
   "directories": {
     "output": "release",
     "buildResources": "build"
@@ -58,7 +57,6 @@
         ]
       }
     ],
-    "icon": "build/icon.ico",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "publisherName": "DMCK96",
     "verifyUpdateCodeSignature": false,
@@ -73,14 +71,6 @@
     "createDesktopShortcut": "always",
     "createStartMenuShortcut": true,
     "shortcutName": "Duckov Mod Manager",
-    "include": "build/installer.nsh",
-    "installerIcon": "build/icon.ico",
-    "uninstallerIcon": "build/icon.ico",
-    "installerHeader": "build/installerHeader.bmp",
-    "installerHeaderHeight": 57,
-    "installerSidebar": "build/installerSidebar.bmp",
-    "uninstallerSidebar": "build/installerSidebar.bmp",
-    "license": "LICENSE",
     "warningsAsErrors": false,
     "runAfterFinish": true,
     "menuCategory": true,
@@ -166,22 +156,24 @@
       "libXScrnSaver"
     ]
   },
-  "afterSign": "build/notarize.js",
   "publish": null,
   "compression": "maximum",
   "asar": true,
   "asarUnpack": [
-    "**\\*.{node,dll}",
-    "**/node_modules/sqlite3/**/*",
-    "**/node_modules/@xenova/transformers/**/*"
+    "**/*.{node,dll}",
+    "**/node_modules/better-sqlite3/**/*",
+    "**/node_modules/@xenova/transformers/**/*",
+    "web/dist/**/*"
   ],
+  "nodeGypRebuild": false,
+  "buildDependenciesFromSource": false,
+  "npmRebuild": true,
   "fileAssociations": [
     {
       "ext": "duckmod",
       "name": "Duckov Mod File",
       "description": "Duckov Mod Manager Mod File",
       "role": "Editor",
-      "icon": "build/file-icon.ico",
       "mimeType": "application/x-duckmod"
     }
   ],

@@ -22,6 +22,7 @@ interface ModListProps {
   onToggleSelect: (modId: string) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
+  isWorkshopConfigured: boolean;
 }
 
 const ModList: React.FC<ModListProps> = ({ 
@@ -31,7 +32,8 @@ const ModList: React.FC<ModListProps> = ({
   selectedMods,
   onToggleSelect,
   onSelectAll,
-  onClearSelection
+  onClearSelection,
+  isWorkshopConfigured
 }) => {
   const [syncInput, setSyncInput] = React.useState('');
   const [showSyncSection, setShowSyncSection] = React.useState(false);
@@ -107,8 +109,9 @@ const ModList: React.FC<ModListProps> = ({
             />
             <button 
               onClick={handleSync}
-              disabled={!syncInput.trim()}
+              disabled={!syncInput.trim() || !isWorkshopConfigured}
               className="btn"
+              title={!isWorkshopConfigured ? "Configure workshop path in settings first" : ""}
             >
               Sync Mods
             </button>
@@ -125,11 +128,17 @@ const ModList: React.FC<ModListProps> = ({
       {!showSyncSection && mods.length === 0 && (
         <div className="empty-state">
           <h3>📦 No mods found</h3>
-          <p>Try syncing some mods from Steam Workshop or adjusting your filters.</p>
+          <p>
+            {isWorkshopConfigured 
+              ? 'Try syncing some mods from Steam Workshop or adjusting your filters.'
+              : 'Please configure workshop path in settings first.'}
+          </p>
           <button 
             onClick={() => setShowSyncSection(true)}
             className="btn btn-primary"
             style={{ marginTop: '1rem' }}
+            disabled={!isWorkshopConfigured}
+            title={!isWorkshopConfigured ? "Configure workshop path in settings first" : ""}
           >
             Sync Mods
           </button>

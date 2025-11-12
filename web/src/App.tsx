@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import ModList from './components/ModList'
 import SearchBar from './components/SearchBar'
 import Statistics from './components/Statistics'
+import Settings from './components/Settings'
 import { modsAPI } from './services/api'
 import './App.css'
 
@@ -37,11 +38,43 @@ function App() {
   const [selectedMods, setSelectedMods] = useState<string[]>([]);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [collectionUrl, setCollectionUrl] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [workshopPath, setWorkshopPath] = useState('');
+  const [isWorkshopConfigured, setIsWorkshopConfigured] = useState(true);
 
   useEffect(() => {
-    fetchMods();
-    fetchStats();
+    initializeApp();
   }, []);
+
+  const initializeApp = async () => {
+    // Check if workshop is configured
+    try {
+      if (window.electronAPI?.isWorkshopConfigured) {
+        const configured = await window.electronAPI.isWorkshopConfigured();
+        setIsWorkshopConfigured(configured);
+        
+        if (configured) {
+          const path = await window.electronAPI.getWorkshopPath();
+          setWorkshopPath(path);
+          // Fetch mods if configured
+          await fetchMods();
+          await fetchStats();
+        } else {
+          // Show settings on first startup
+          setShowSettings(true);
+        }
+      } else {
+        // Fallback for non-Electron environment
+        await fetchMods();
+        await fetchStats();
+      }
+    } catch (error) {
+      console.error('Failed to initialize app:', error);
+      // Continue with app initialization even if settings check fails
+      await fetchMods();
+      await fetchStats();
+    }
+  };
 
   useEffect(() => {
     applyFiltersAndSort();
@@ -182,6 +215,12 @@ function App() {
   };
 
   const syncMods = async (fileIds: string[]) => {
+    if (!isWorkshopConfigured) {
+      alert('Please configure workshop path in settings first.');
+      setShowSettings(true);
+      return;
+    }
+
     setLoading(true);
     try {
       // Use IPC API instead of HTTP fetch
@@ -198,7 +237,33 @@ function App() {
     }
   };
 
+  const handleSaveSettings = async (newWorkshopPath: string) => {
+    try {
+      if (window.electronAPI?.setWorkshopPath) {
+        await window.electronAPI.setWorkshopPath(newWorkshopPath);
+        setWorkshopPath(newWorkshopPath);
+        setIsWorkshopConfigured(true);
+        setShowSettings(false);
+        
+        // Refresh mods after setting workshop path
+        await fetchMods();
+        await fetchStats();
+        
+        alert('Workshop path updated successfully!');
+      }
+    } catch (error) {
+      console.error('Failed to save workshop path:', error);
+      alert(`Failed to save workshop path: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   const scanWorkshopFolder = async () => {
+    if (!isWorkshopConfigured) {
+      alert('Please configure workshop path in settings first.');
+      setShowSettings(true);
+      return;
+    }
+
     setLoading(true);
     try {
       // Use IPC API instead of HTTP fetch
@@ -301,9 +366,26 @@ function App() {
   return (
     <div className="App">
       <header className="app-header">
-        <h1>🦆 Duckov Mod Manager</h1>
-        <p>Manage your Escape from Duckov mods with automatic translation</p>
+        <div>
+          <h1>🦆 Duckov Mod Manager</h1>
+          <p>Manage your Escape from Duckov mods with automatic translation</p>
+        </div>
+        <button 
+          onClick={() => setShowSettings(true)}
+          className="btn btn-secondary settings-btn"
+          title="Open Settings"
+        >
+          <span className="btn-icon">⚙️</span>
+          <span className="btn-text">Settings</span>
+        </button>
       </header>
+
+      <Settings 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        onSave={handleSaveSettings}
+        currentWorkshopPath={workshopPath}
+      />
 
       <main className="app-main">
         <div className="top-controls">
@@ -311,9 +393,9 @@ function App() {
           <div className="actions">
             <button 
               onClick={scanWorkshopFolder}
-              disabled={loading}
+              disabled={loading || !isWorkshopConfigured}
               className="btn btn-primary"
-              title="Scan local workshop folder and sync with Steam Workshop"
+              title={isWorkshopConfigured ? "Scan local workshop folder and sync with Steam Workshop" : "Configure workshop path in settings first"}
             >
               <span className="btn-icon">📁</span>
               <span className="btn-text">Scan Workshop</span>
@@ -493,6 +575,7 @@ function App() {
           onToggleSelect={toggleSelectMod}
           onSelectAll={selectAllMods}
           onClearSelection={clearSelection}
+          isWorkshopConfigured={isWorkshopConfigured}
         />
       </main>
 

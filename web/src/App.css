@@ -8,6 +8,14 @@
 .app-header {
   margin-bottom: 2rem;
   padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.app-header > div {
+  flex: 1;
 }
 
 .app-header h1 {
@@ -19,6 +27,10 @@
 .app-header p {
   color: #7f8c8d;
   font-size: clamp(0.9rem, 2vw, 1.1rem);
+}
+
+.settings-btn {
+  align-self: flex-start;
 }
 
 .app-main {

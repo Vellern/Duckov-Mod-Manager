@@ -16,6 +16,22 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// Use picomatch as an alternative to minimatch (already available via vite dependencies)
+let picomatch;
+try {
+  picomatch = require('picomatch');
+} catch {
+  // Fallback: simple glob matching function
+  picomatch = (pattern) => {
+    const regexPattern = pattern
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')
+      .replace(/\//g, '[\\\\/]');
+    const regex = new RegExp(`^${regexPattern}$`);
+    return (str) => regex.test(str);
+  };
+}
+
 // ANSI color codes for better output
 const colors = {
   reset: '\x1b[0m',
@@ -151,7 +167,13 @@ function removeMatchingFiles(dirPath, patterns) {
     return;
   }
 
-  const minimatch = require('minimatch');
+  // Create matchers for each pattern
+  const matchers = patterns.map(pattern => {
+    if (typeof picomatch === 'function') {
+      return picomatch(pattern);
+    }
+    return picomatch(pattern);
+  });
 
   function scanDirectory(dir, baseDir) {
     const items = fs.readdirSync(dir, { withFileTypes: true });
@@ -162,7 +184,7 @@ function removeMatchingFiles(dirPath, patterns) {
 
       if (item.isDirectory()) {
         // Check if directory matches any pattern
-        const shouldRemove = patterns.some(pattern => minimatch(relativePath, pattern));
+        const shouldRemove = matchers.some(matcher => matcher(relativePath));
 
         if (shouldRemove) {
           const size = getDirectorySize(itemPath);
@@ -175,7 +197,7 @@ function removeMatchingFiles(dirPath, patterns) {
         }
       } else if (item.isFile()) {
         // Check if file matches any pattern
-        const shouldRemove = patterns.some(pattern => minimatch(relativePath, pattern));
+        const shouldRemove = matchers.some(matcher => matcher(relativePath));
 
         if (shouldRemove) {
           try {
@@ -263,7 +285,7 @@ function verifyDependencies() {
 
   const criticalDeps = [
     'electron',
-    'sqlite3',
+    'better-sqlite3',
     'axios',
     'cheerio',
     'archiver',

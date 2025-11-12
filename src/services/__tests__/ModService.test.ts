@@ -34,6 +34,7 @@ import { ModService } from '../ModService';
 import { Database } from '../../database/Database';
 import { OfflineTranslationService } from '../OfflineTranslationService';
 import { LocalModService } from '../LocalModService';
+import { SteamWorkshopService } from '../SteamWorkshopService';
 import {
   createTestDatabase,
   cleanupTestDb,
@@ -48,11 +49,15 @@ import {
 import path from 'path';
 import fs from 'fs';
 
+// Mock SteamWorkshopService
+jest.mock('../SteamWorkshopService');
+
 describe('ModService', () => {
   let modService: ModService;
   let database: Database;
   let translationService: OfflineTranslationService;
   let localModService: LocalModService;
+  let steamWorkshopService: jest.Mocked<SteamWorkshopService>;
   let consoleSpy: ReturnType<typeof suppressConsoleOutput>;
   let workshopDir: string;
   const testName = 'mod-service';
@@ -87,7 +92,13 @@ describe('ModService', () => {
     // Initialize services
     translationService = new OfflineTranslationService(database);
     localModService = new LocalModService(workshopDir);
-    modService = new ModService(database, translationService, localModService);
+    
+    // Create mock Steam Workshop Service
+    steamWorkshopService = new SteamWorkshopService() as jest.Mocked<SteamWorkshopService>;
+    steamWorkshopService.getWorkshopItems = jest.fn().mockResolvedValue(new Map());
+    steamWorkshopService.getWorkshopItem = jest.fn().mockResolvedValue(null);
+    
+    modService = new ModService(database, translationService, localModService, steamWorkshopService);
   });
 
   afterEach(async () => {
@@ -151,7 +162,8 @@ describe('ModService', () => {
       const invalidService = new ModService(
         database,
         translationService,
-        new LocalModService('/invalid/path')
+        new LocalModService('/invalid/path'),
+        steamWorkshopService
       );
 
       await expect(invalidService.scanAndSyncLocalMods()).rejects.toThrow();

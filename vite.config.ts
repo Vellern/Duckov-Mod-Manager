@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     root: './web',
+    base: './', // Use relative paths for Electron (file:// protocol)
     build: {
       outDir: 'dist',
       emptyOutDir: true,
@@ -44,7 +45,7 @@ export default defineConfig(({ mode }) => {
         },
         treeshake: isProduction
           ? {
-              moduleSideEffects: false,
+              moduleSideEffects: true, // Keep side effects for proper rendering
               propertyReadSideEffects: false,
               tryCatchDeoptimization: false,
             }
@@ -72,7 +73,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     esbuild: {
-      drop: isProduction ? ['console', 'debugger'] : [],
+      drop: isProduction ? ['debugger'] : [], // Keep console for production debugging
       legalComments: 'none',
     },
     optimizeDeps: {

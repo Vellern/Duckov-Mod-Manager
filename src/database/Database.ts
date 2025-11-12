@@ -1,4 +1,4 @@
-import sqlite3 from 'sqlite3';
+import BetterSqlite3 from 'better-sqlite3';
 import { logger } from '../utils/logger';
 import { ModInfo, CachedTranslation } from '../types';
 import path from 'path';
@@ -11,11 +11,11 @@ import { app } from 'electron';
  * Electron Considerations:
  * - Uses app.getPath('userData') for database location in production
  * - Falls back to './data' for development/testing
- * - All operations are async and non-blocking
+ * - All operations are synchronous for better performance
  * - Thread-safe for use in Electron main process
  */
 export class Database {
-  private db: sqlite3.Database | null = null;
+  private db: BetterSqlite3.Database | null = null;
   private dbPath: string;
 
   constructor() {
@@ -44,20 +44,17 @@ export class Database {
   }
 
   async initialize(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err: any) => {
-        if (err) {
-          logger.error('Failed to connect to database:', err);
-          reject(err);
-          return;
-        }
-        logger.info('Connected to SQLite database');
-        this.createTables().then(resolve).catch(reject);
-      });
-    });
+    try {
+      this.db = new BetterSqlite3(this.dbPath);
+      logger.info('Connected to SQLite database');
+      this.createTables();
+    } catch (err) {
+      logger.error('Failed to connect to database:', err);
+      throw err;
+    }
   }
 
-  private async createTables(): Promise<void> {
+  private createTables(): void {
     const queries = [
       `CREATE TABLE IF NOT EXISTS mods (
         id TEXT PRIMARY KEY,
@@ -99,65 +96,53 @@ export class Database {
     ];
 
     for (const query of queries) {
-      await this.runQuery(query);
+      this.runQuery(query);
     }
   }
 
-  private runQuery(query: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database not initialized'));
-        return;
-      }
+  private runQuery(query: string, params: any[] = []): any {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
 
-      this.db.run(query, params, function(this: any, err: any) {
-        if (err) {
-          logger.error('Database query failed:', { query, params, error: err });
-          reject(err);
-        } else {
-          resolve({ lastID: this.lastID, changes: this.changes });
-        }
-      });
-    });
+    try {
+      const result = this.db.prepare(query).run(...params);
+      return result;
+    } catch (err) {
+      logger.error('Database query failed:', { query, params, error: err });
+      throw err;
+    }
   }
 
-  private getQuery(query: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database not initialized'));
-        return;
-      }
+  private getQuery(query: string, params: any[] = []): any {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
 
-      this.db.get(query, params, (err: any, row: any) => {
-        if (err) {
-          logger.error('Database query failed:', { query, params, error: err });
-          reject(err);
-        } else {
-          resolve(row);
-        }
-      });
-    });
+    try {
+      const result = this.db.prepare(query).get(...params);
+      return result;
+    } catch (err) {
+      logger.error('Database query failed:', { query, params, error: err });
+      throw err;
+    }
   }
 
-  private getAllQuery(query: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database not initialized'));
-        return;
-      }
+  private getAllQuery(query: string, params: any[] = []): any[] {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
 
-      this.db.all(query, params, (err: any, rows: any) => {
-        if (err) {
-          logger.error('Database query failed:', { query, params, error: err });
-          reject(err);
-        } else {
-          resolve(rows || []);
-        }
-      });
-    });
+    try {
+      const result = this.db.prepare(query).all(...params);
+      return result || [];
+    } catch (err) {
+      logger.error('Database query failed:', { query, params, error: err });
+      throw err;
+    }
   }
 
-  async saveMod(mod: ModInfo): Promise<void> {
+  saveMod(mod: ModInfo): void {
     const query = `
       INSERT OR REPLACE INTO mods (
         id, title, description, original_title, original_description,
@@ -187,26 +172,26 @@ export class Database {
       mod.language || null
     ];
 
-    await this.runQuery(query, params);
+    this.runQuery(query, params);
   }
 
-  async getMod(id: string): Promise<ModInfo | null> {
+  getMod(id: string): ModInfo | null {
     const query = 'SELECT * FROM mods WHERE id = ?';
-    const row = await this.getQuery(query, [id]);
+    const row = this.getQuery(query, [id]);
     
     if (!row) return null;
     
     return this.mapRowToMod(row);
   }
 
-  async getAllMods(limit: number = 100, offset: number = 0): Promise<ModInfo[]> {
+  getAllMods(limit: number = 100, offset: number = 0): ModInfo[] {
     const query = 'SELECT * FROM mods ORDER BY time_updated DESC LIMIT ? OFFSET ?';
-    const rows = await this.getAllQuery(query, [limit, offset]);
+    const rows = this.getAllQuery(query, [limit, offset]);
     
     return rows.map(row => this.mapRowToMod(row));
   }
 
-  async searchMods(searchTerm: string, limit: number = 50): Promise<ModInfo[]> {
+  searchMods(searchTerm: string, limit: number = 50): ModInfo[] {
     const query = `
       SELECT * FROM mods 
       WHERE title LIKE ? OR description LIKE ? OR translated_title LIKE ? OR translated_description LIKE ?
@@ -214,7 +199,7 @@ export class Database {
       LIMIT ?
     `;
     const term = `%${searchTerm}%`;
-    const rows = await this.getAllQuery(query, [term, term, term, term, limit]);
+    const rows = this.getAllQuery(query, [term, term, term, term, limit]);
     
     return rows.map(row => this.mapRowToMod(row));
   }
@@ -226,13 +211,13 @@ export class Database {
    * @param targetLang - Target language code
    * @returns Cached translation or null if not found/expired
    */
-  async getTranslation(originalText: string, sourceLang: string, targetLang: string): Promise<CachedTranslation | null> {
+  getTranslation(originalText: string, sourceLang: string, targetLang: string): CachedTranslation | null {
     const query = `
       SELECT * FROM translations
       WHERE original_text = ? AND source_lang = ? AND target_lang = ? AND expires_at > CURRENT_TIMESTAMP
     `;
 
-    const row = await this.getQuery(query, [originalText, sourceLang, targetLang]);
+    const row = this.getQuery(query, [originalText, sourceLang, targetLang]);
 
     if (!row) return null;
 
@@ -253,7 +238,7 @@ export class Database {
    * @param sourceLang - Source language code
    * @param targetLang - Target language code
    */
-  async saveTranslation(text: string, translation: string, sourceLang: string, targetLang: string): Promise<void> {
+  saveTranslation(text: string, translation: string, sourceLang: string, targetLang: string): void {
     const cacheExpiryDays = parseInt(process.env.TRANSLATION_CACHE_TTL_DAYS || '30');
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + cacheExpiryDays);
@@ -272,7 +257,7 @@ export class Database {
       expiresAt.toISOString()
     ];
 
-    await this.runQuery(query, params);
+    this.runQuery(query, params);
   }
 
   /**
@@ -281,9 +266,9 @@ export class Database {
    *
    * @returns Number of non-expired translations in cache
    */
-  async getTranslationCount(): Promise<number> {
+  getTranslationCount(): number {
     const query = 'SELECT COUNT(*) as count FROM translations WHERE expires_at > CURRENT_TIMESTAMP';
-    const row = await this.getQuery(query);
+    const row = this.getQuery(query);
     return row ? row.count : 0;
   }
 
@@ -293,9 +278,9 @@ export class Database {
    *
    * @returns Number of translations deleted
    */
-  async clearExpiredTranslations(): Promise<number> {
+  clearExpiredTranslations(): number {
     const query = 'DELETE FROM translations WHERE expires_at < CURRENT_TIMESTAMP';
-    const result = await this.runQuery(query);
+    const result = this.runQuery(query);
     return result.changes || 0;
   }
 
@@ -305,9 +290,9 @@ export class Database {
    *
    * @returns Number of translations deleted
    */
-  async clearAllTranslations(): Promise<number> {
+  clearAllTranslations(): number {
     const query = 'DELETE FROM translations';
-    const result = await this.runQuery(query);
+    const result = this.runQuery(query);
     logger.warn(`Cleared all translations from cache: ${result.changes || 0} entries deleted`);
     return result.changes || 0;
   }
@@ -316,8 +301,8 @@ export class Database {
    * Legacy method - kept for backward compatibility
    * @deprecated Use clearExpiredTranslations() instead
    */
-  async cleanExpiredTranslations(): Promise<void> {
-    await this.clearExpiredTranslations();
+  cleanExpiredTranslations(): void {
+    this.clearExpiredTranslations();
   }
 
   private mapRowToMod(row: any): ModInfo {
@@ -346,20 +331,14 @@ export class Database {
     };
   }
 
-  async close(): Promise<void> {
-    return new Promise((resolve) => {
-      if (this.db) {
-        this.db.close((err: any) => {
-          if (err) {
-            logger.error('Error closing database:', err);
-          } else {
-            logger.info('Database connection closed');
-          }
-          resolve();
-        });
-      } else {
-        resolve();
+  close(): void {
+    if (this.db) {
+      try {
+        this.db.close();
+        logger.info('Database connection closed');
+      } catch (err) {
+        logger.error('Error closing database:', err);
       }
-    });
+    }
   }
 }

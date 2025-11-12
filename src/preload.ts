@@ -10,15 +10,108 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
-import {
-  IpcChannels,
-} from './types/electron';
-import type {
-  ElectronAPI,
-  OpenDialogOptions,
-  SaveDialogOptions,
-} from './types/electron';
-import type { TranslationRequest } from './types';
+
+// Inline type definitions to avoid module resolution issues in sandboxed preload
+// These types are copied from ./types/electron.ts and ./types/index.ts
+
+/**
+ * IPC Channel definitions - must match main process
+ */
+enum IpcChannels {
+  // Mod operations
+  MODS_SCAN = 'mods:scan',
+  MODS_GET_ALL = 'mods:get-all',
+  MODS_GET_BY_ID = 'mods:get-by-id',
+  MODS_SEARCH = 'mods:search',
+  MODS_SYNC = 'mods:sync',
+  MODS_EXPORT = 'mods:export',
+
+  // Translation operations
+  TRANSLATION_TRANSLATE = 'translation:translate',
+  TRANSLATION_GET_CACHED = 'translation:get-cached',
+  TRANSLATION_CLEAR_CACHE = 'translation:clear-cache',
+
+  // Settings operations
+  SETTINGS_GET_WORKSHOP_PATH = 'settings:get-workshop-path',
+  SETTINGS_SET_WORKSHOP_PATH = 'settings:set-workshop-path',
+  SETTINGS_IS_WORKSHOP_CONFIGURED = 'settings:is-workshop-configured',
+
+  // File dialog operations
+  DIALOG_OPEN = 'dialog:open',
+  DIALOG_SAVE = 'dialog:save',
+
+  // App operations
+  APP_GET_INFO = 'app:get-info',
+  APP_GET_PATH = 'app:get-path',
+  APP_QUIT = 'app:quit',
+  APP_RELAUNCH = 'app:relaunch',
+  APP_MINIMIZE = 'app:minimize',
+  APP_MAXIMIZE = 'app:maximize',
+  APP_CLOSE = 'app:close',
+}
+
+/**
+ * Translation request interface
+ */
+interface TranslationRequest {
+  text: string;
+  sourceLang?: string;
+  targetLang: string;
+  context?: string;
+}
+
+/**
+ * File dialog options
+ */
+interface OpenDialogOptions {
+  title?: string;
+  defaultPath?: string;
+  buttonLabel?: string;
+  properties?: Array<'openFile' | 'openDirectory' | 'multiSelections'>;
+}
+
+interface SaveDialogOptions {
+  title?: string;
+  defaultPath?: string;
+  buttonLabel?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}
+
+/**
+ * Electron API interface
+ */
+interface ElectronAPI {
+  // Mod operations
+  scanMods: () => Promise<any>;
+  getAllMods: (limit?: number, offset?: number) => Promise<any>;
+  getModById: (id: string) => Promise<any>;
+  searchMods: (query: string) => Promise<any>;
+  syncMods: () => Promise<any>;
+  exportMods: (filePath: string, modIds: string[]) => Promise<any>;
+
+  // Translation operations
+  translate: (request: TranslationRequest) => Promise<any>;
+  getCachedTranslation: (text: string, sourceLang: string, targetLang: string) => Promise<any>;
+  clearTranslationCache: () => Promise<any>;
+
+  // Settings operations
+  getWorkshopPath: () => Promise<string>;
+  setWorkshopPath: (path: string) => Promise<void>;
+  isWorkshopConfigured: () => Promise<boolean>;
+
+  // File dialog operations
+  showOpenDialog: (options: OpenDialogOptions) => Promise<any>;
+  showSaveDialog: (options: SaveDialogOptions) => Promise<any>;
+
+  // App operations
+  getAppInfo: () => Promise<any>;
+  getPath: (name: 'home' | 'appData' | 'userData' | 'temp' | 'downloads' | 'documents') => Promise<string>;
+  quit: () => void;
+  relaunch: () => void;
+  minimize: () => void;
+  maximize: () => void;
+  close: () => void;
+}
 
 /**
  * Validate IPC channel to prevent arbitrary channel access
@@ -148,6 +241,36 @@ const electronAPI: ElectronAPI = {
    */
   clearTranslationCache: async () => {
     return await safeInvoke(IpcChannels.TRANSLATION_CLEAR_CACHE);
+  },
+
+  // ==========================================
+  // Settings Operations
+  // ==========================================
+
+  /**
+   * Get workshop path setting
+   */
+  getWorkshopPath: async () => {
+    const result: any = await safeInvoke(IpcChannels.SETTINGS_GET_WORKSHOP_PATH);
+    return result.data || '';
+  },
+
+  /**
+   * Set workshop path setting
+   */
+  setWorkshopPath: async (path: string) => {
+    if (typeof path !== 'string') {
+      throw new Error('Invalid workshop path');
+    }
+    await safeInvoke(IpcChannels.SETTINGS_SET_WORKSHOP_PATH, { path });
+  },
+
+  /**
+   * Check if workshop is configured
+   */
+  isWorkshopConfigured: async () => {
+    const result: any = await safeInvoke(IpcChannels.SETTINGS_IS_WORKSHOP_CONFIGURED);
+    return result.data || false;
   },
 
   // ==========================================

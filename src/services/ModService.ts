@@ -1,23 +1,24 @@
 import { Database } from '../database/Database';
 import { OfflineTranslationService } from './OfflineTranslationService';
 import { LocalModService } from './LocalModService';
+import { SteamWorkshopService } from './SteamWorkshopService';
 import { ModInfo } from '../types';
 import { logger } from '../utils/logger';
 import archiver from 'archiver';
-import path from 'path';
 
 /**
  * ModService - Main service for managing mods in Electron app
  *
  * Electron Migration Changes:
- * - Removed SteamWorkshopService dependency (no online API calls)
+ * - Re-added SteamWorkshopService to fetch mod metadata from Steam API
  * - Replaced TranslationService (DeepL) with OfflineTranslationService (Transformers.js)
- * - All operations work offline after initial model download
+ * - Translation works offline after initial model download
  * - Removed Express Response dependencies (use Electron IPC instead)
- * - Optimized for local-only mod scanning and translation
+ * - Hybrid approach: fetch metadata from Steam, translate offline
  *
  * Key Features:
  * - Scans local workshop folder for mods
+ * - Fetches mod metadata (title, description) from Steam Workshop API
  * - Translates Chinese mod content to English offline
  * - Caches translations in SQLite database
  * - Exports mods as zip archives
@@ -26,15 +27,18 @@ export class ModService {
   constructor(
     private database: Database,
     private translationService: OfflineTranslationService,
-    private localModService: LocalModService
+    private localModService: LocalModService,
+    private steamWorkshopService: SteamWorkshopService
   ) {}
 
   /**
-   * Scans the local workshop folder for mods
-   * OFFLINE MODE - No Steam API calls
-   *
-   * This method scans the local workshop folder and reads mod metadata
-   * from local files only. Perfect for offline Electron app.
+   * Scans the local workshop folder for mods and fetches details from Steam
+   * 
+   * This method:
+   * 1. Scans the local workshop folder for mod IDs
+   * 2. Fetches mod metadata (title, description, etc.) from Steam Workshop API
+   * 3. Saves/updates mod info in the database
+   * 4. Translates mod content if needed
    */
   async scanAndSyncLocalMods(): Promise<{
     scanned: number;
@@ -42,7 +46,7 @@ export class ModService {
     errors: string[];
   }> {
     try {
-      logger.info('Starting local mod scan (offline mode)...');
+      logger.info('Starting local mod scan with Steam API integration...');
 
       // Scan local workshop folder for mod IDs
       const modIds = await this.localModService.scanLocalMods();
@@ -52,59 +56,91 @@ export class ModService {
         return { scanned: 0, synced: [], errors: [] };
       }
 
-      // Process local mods without Steam API
+      // Fetch mod details from Steam Workshop API (in batches)
+      logger.info('Fetching mod details from Steam Workshop API...');
+      const steamModsMap = await this.steamWorkshopService.getWorkshopItems(modIds);
+      logger.info(`Retrieved ${steamModsMap.size} mod details from Steam API`);
+
+      // Process each mod
       const synced: ModInfo[] = [];
       const errors: string[] = [];
 
       for (const modId of modIds) {
         try {
-          // Get or create mod entry in database
+          // Get existing mod from database
           let mod = await this.database.getMod(modId);
+          const steamMod = steamModsMap.get(modId);
 
-          if (!mod) {
-            // Create basic mod entry from local folder info
-            const folderInfo = await this.localModService.getModFolderInfo(modId);
-
-            if (!folderInfo.exists) {
-              errors.push(`Mod ${modId}: Folder not found`);
-              continue;
-            }
-
-            // Create minimal mod info from local data
-            // In a real implementation, you might read mod.json or other metadata files
-            mod = {
-              id: modId,
-              title: `Mod ${modId}`, // Would read from local metadata
-              description: `Local mod in workshop folder`,
-              creator: 'Unknown',
-              previewUrl: '',
-              fileSize: folderInfo.totalSize || 0,
-              subscriptions: 0,
-              rating: 0,
-              tags: [],
-              timeCreated: new Date(),
-              timeUpdated: folderInfo.lastModified || new Date(),
-              language: 'zh' // Assume Chinese for now
-            };
-
-            await this.database.saveMod(mod);
+          if (!steamMod) {
+            logger.warn(`No Steam Workshop details found for mod ${modId}, skipping...`);
+            errors.push(`Mod ${modId}: Not found on Steam Workshop or access denied`);
+            continue;
           }
 
-          // Translate if needed
-          if (mod.language && mod.language !== 'en') {
-            const existingMod = await this.database.getMod(mod.id);
-            const needsTranslation = this.shouldTranslateMod(mod, existingMod);
+          // Get local folder info
+          const folderInfo = await this.localModService.getModFolderInfo(modId);
+
+          if (!folderInfo.exists) {
+            errors.push(`Mod ${modId}: Local folder not found`);
+            continue;
+          }
+
+          // Detect language - check both title and description for Chinese characters
+          // More robust detection: check each field separately
+          const titleHasChinese = /[\u4e00-\u9fa5]/.test(steamMod.title);
+          const descriptionHasChinese = /[\u4e00-\u9fa5]/.test(steamMod.description || '');
+          const hasChinese = titleHasChinese || descriptionHasChinese;
+          const language = hasChinese ? 'zh' : 'en';
+
+          // Check if content has changed (need to invalidate translations)
+          const contentChanged = mod && (
+            mod.originalTitle !== steamMod.title || 
+            mod.originalDescription !== steamMod.description
+          );
+
+          // Create or update mod info
+          const updatedMod: ModInfo = {
+            id: modId,
+            title: steamMod.title,
+            description: steamMod.description || 'No description available',
+            creator: steamMod.creator || 'Unknown',
+            previewUrl: steamMod.preview_url || '',
+            fileSize: steamMod.file_size || folderInfo.totalSize || 0,
+            subscriptions: steamMod.subscriptions || 0,
+            rating: 0, // Steam API doesn't provide rating directly
+            tags: steamMod.tags?.map(t => t.tag) || [],
+            timeCreated: new Date(steamMod.time_created * 1000),
+            timeUpdated: new Date(steamMod.time_updated * 1000),
+            language: language,
+            // Set original content to current Steam values
+            originalTitle: steamMod.title,
+            originalDescription: steamMod.description || 'No description available',
+            // Clear translations if content changed, otherwise preserve them
+            translatedTitle: contentChanged ? undefined : mod?.translatedTitle,
+            translatedDescription: contentChanged ? undefined : mod?.translatedDescription,
+            lastTranslated: contentChanged ? undefined : mod?.lastTranslated
+          };
+
+          // Save to database
+          await this.database.saveMod(updatedMod);
+          mod = updatedMod;
+
+          // Translate if needed - now checks for Chinese content more intelligently
+          // Translate if: 1) language is detected as Chinese, OR 2) title/description contain Chinese chars
+          const needsTranslationCheck = titleHasChinese || descriptionHasChinese;
+          
+          if (needsTranslationCheck) {
+            // Check if we need to translate (content changed or no translation exists)
+            const needsTranslation = contentChanged || !mod.translatedTitle || !mod.translatedDescription;
 
             if (needsTranslation) {
-              logger.info(`Mod ${mod.id} needs translation`);
+              logger.info(`Mod ${mod.id} (${mod.title}) needs translation (contains Chinese characters)`);
               await this.translateMod(mod);
-            } else if (existingMod) {
-              // Keep existing translations
-              mod.translatedTitle = existingMod.translatedTitle;
-              mod.translatedDescription = existingMod.translatedDescription;
-              mod.lastTranslated = existingMod.lastTranslated;
-              mod.originalTitle = existingMod.originalTitle;
-              mod.originalDescription = existingMod.originalDescription;
+              // Re-fetch to get the updated translations
+              const translatedMod = await this.database.getMod(mod.id);
+              if (translatedMod) {
+                mod = translatedMod;
+              }
             }
           }
 
@@ -135,40 +171,12 @@ export class ModService {
    * Use scanAndSyncLocalMods() instead for local-only mod scanning
    */
 
-  /**
-   * Determines if a mod needs translation based on whether it has been updated since last translation
-   */
-  private shouldTranslateMod(mod: ModInfo, existingMod: ModInfo | null): boolean {
-    // If no existing mod in DB, translation is needed
-    if (!existingMod) {
-      return true;
-    }
-
-    // If never translated before, translation is needed
-    if (!existingMod.lastTranslated) {
-      return true;
-    }
-
-    // If mod has been updated since last translation, translation is needed
-    if (mod.timeUpdated > existingMod.lastTranslated) {
-      return true;
-    }
-
-    // If translation is too old (past cache expiry), translation is needed
-    const cacheExpiryDays = parseInt(process.env.TRANSLATION_CACHE_TTL_DAYS || '7');
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() - cacheExpiryDays);
-    
-    if (existingMod.lastTranslated < expiryDate) {
-      return true;
-    }
-
-    // Otherwise, existing translation is still valid
-    return false;
-  }
-
   async translateMod(mod: ModInfo, forceRetranslate: boolean = false): Promise<ModInfo> {
     try {
+      // Detect which fields contain Chinese characters
+      const titleHasChinese = /[\u4e00-\u9fa5]/.test(mod.title);
+      const descriptionHasChinese = /[\u4e00-\u9fa5]/.test(mod.description);
+      
       // Check if already translated and not forcing retranslation
       if (!forceRetranslate && mod.translatedTitle && mod.translatedDescription) {
         // Check if translation is recent enough
@@ -182,7 +190,7 @@ export class ModService {
         }
       }
 
-      logger.info(`Translating mod: ${mod.title} (${mod.id})`);
+      logger.info(`Translating mod: ${mod.title} (${mod.id}) - Title: ${titleHasChinese ? 'Chinese' : 'English'}, Description: ${descriptionHasChinese ? 'Chinese' : 'English'}`);
       
       // Store original content if not already stored
       if (!mod.originalTitle) {
@@ -192,22 +200,33 @@ export class ModService {
         mod.originalDescription = mod.description;
       }
 
-      // Translate the content
-      const translation = await this.translationService.translateModContent(
-        mod.title,
-        mod.description,
-        'en'
-      );
+      // Translate only fields that contain Chinese characters
+      // If a field is already in English, keep it as-is
+      let translatedTitle = mod.title;
+      let translatedDescription = mod.description;
+
+      if (titleHasChinese || descriptionHasChinese) {
+        // Translate the content - the service will handle both fields
+        const translation = await this.translationService.translateModContent(
+          titleHasChinese ? mod.title : '', // Only translate if has Chinese
+          descriptionHasChinese ? mod.description : '', // Only translate if has Chinese
+          'en'
+        );
+
+        // Use translated versions for fields that had Chinese, keep original for English fields
+        translatedTitle = titleHasChinese ? translation.translatedTitle : mod.title;
+        translatedDescription = descriptionHasChinese ? translation.translatedDescription : mod.description;
+        
+        // If we detected the language, update it
+        if (translation.detectedLanguage) {
+          mod.language = translation.detectedLanguage;
+        }
+      }
 
       // Update mod with translated content
-      mod.translatedTitle = translation.translatedTitle;
-      mod.translatedDescription = translation.translatedDescription;
+      mod.translatedTitle = translatedTitle;
+      mod.translatedDescription = translatedDescription;
       mod.lastTranslated = new Date();
-      
-      // If we detected the language, update it
-      if (translation.detectedLanguage) {
-        mod.language = translation.detectedLanguage;
-      }
 
       // Don't overwrite title and description - let the database layer handle prioritization
       // The mapRowToMod function will use translatedTitle/translatedDescription when available
@@ -215,7 +234,7 @@ export class ModService {
       // Save to database
       await this.database.saveMod(mod);
       
-      logger.info(`Successfully translated mod: ${mod.title}`);
+      logger.info(`Successfully translated mod: ${translatedTitle}`);
       return mod;
     } catch (error) {
       logger.error(`Failed to translate mod ${mod.id}:`, error);
